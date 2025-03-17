@@ -77,7 +77,7 @@ testFEC fec len seed = do
     -- Choose enough of the tagged blocks (some combination of original and
     -- secondary) to try to use for decoding.
         someTaggedBlocks = randomTake seed (FEC.paramK fec) taggedBlocks
-    decoded <- FEC.decode fec someTaggedBlocks 
+    decoded <- FEC.decode fec someTaggedBlocks
     pure $ decoded == origBlocks
 
 

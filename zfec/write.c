@@ -1,11 +1,11 @@
-// This is not part of the main build but is included for reference onby. 
+// This is not part of the main build but is included for reference only.
 // It's used to generate tables.c, but that's been done and the result committed to source control.
 
 #include "fec.c"
 
 void print_table_int(const char * name, const int data[], int len) {
   printf("static int %s[%d]={", name, len);
-  printf("%d", data[0]); 
+  printf("%d", data[0]);
   for (int i=1; i<len; i++) printf(",%d", data[i]);
   printf("};\n\n");
 }
@@ -24,7 +24,7 @@ void print_table_gf(const char * name, const gf data[], int len) {
 
 void print_table_gf_256_256(const char * name, const gf data[256][256]) {
   printf("static gf %s[256][256]={", name);
-  print_gfs(data[0], 256); 
+  print_gfs(data[0], 256);
   for (int i=1; i<256; i++) {
     printf(",\n");
     print_gfs(data[i], 256);
@@ -40,4 +40,4 @@ int main()
   print_table_gf("inverse", inverse, 256);
   print_table_gf_256_256("gf_mul_table", gf_mul_table);
 }
- 
+

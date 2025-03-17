@@ -70,20 +70,20 @@ void fec_decode(const fec_t* code, const gf*restrict const*restrict const inpkts
 
 /**
  * zfec -- fast forward error correction library with Python interface
- * 
+ *
  * Copyright (C) 2007-2008 Allmydata, Inc.
  * Author: Zooko Wilcox-O'Hearn
- * 
+ *
  * This file is part of zfec.
- * 
+ *
  * See README.rst for licensing information.
  */
 
 /*
- * Much of this work is derived from the "fec" software by Luigi Rizzo, et 
- * al., the copyright notice and licence terms of which are included below 
+ * Much of this work is derived from the "fec" software by Luigi Rizzo, et
+ * al., the copyright notice and licence terms of which are included below
  * for reference.
- * 
+ *
  * fec.h -- forward error correction based on Vandermonde matrices
  * 980614
  * (C) 1997-98 Luigi Rizzo (luigi@iet.unipi.it)
@@ -92,7 +92,7 @@ void fec_decode(const fec_t* code, const gf*restrict const*restrict const inpkts
  * Robert Morelos-Zaragoza (robert@spectra.eng.hawaii.edu) and Hari
  * Thirumoorthy (harit@spectra.eng.hawaii.edu), Aug 1995
  *
- * Modifications by Dan Rubenstein (see Modifications.txt for 
+ * Modifications by Dan Rubenstein (see Modifications.txt for
  * their description.
  * Modifications (C) 1998 Dan Rubenstein (drubenst@cs.umass.edu)
  *

@@ -364,5 +364,5 @@ deFEC k n inputs = if length inputs < k then error "Too few inputs to deFEC" els
   let taggedInputs = map (\bs -> (fromIntegral $ B.head bs, B.tail bs)) kInputs
   fecOutput <- B.concat <$> decode params taggedInputs
   let paddingLength = fromIntegral $ B.last fecOutput
-  pure $ B.take (B.length fecOutput - paddingLength) fecOutput 
-    
+  pure $ B.take (B.length fecOutput - paddingLength) fecOutput
+
