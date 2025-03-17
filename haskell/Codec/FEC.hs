@@ -21,7 +21,6 @@
 -}
 module Codec.FEC (
     FECParams (paramK, paramN),
-    initialize,
     fec,
     encode,
     decode,
@@ -33,9 +32,7 @@ module Codec.FEC (
     deFEC,
 ) where
 
-import Control.Concurrent.Extra (Lock, newLock, withLock)
 import Control.DeepSeq (NFData (rnf))
-import Control.Exception (Exception, throwIO)
 import Data.Bits (xor)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as BU
@@ -49,11 +46,10 @@ import Foreign.ForeignPtr (
  )
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (advancePtr, withArray)
-import Foreign.Ptr (FunPtr, Ptr, castPtr, nullPtr)
+import Foreign.Ptr (FunPtr, Ptr, castPtr)
 import Foreign.Storable (poke, sizeOf)
 import GHC.Generics (Generic)
 import System.IO (IOMode (..), withFile)
-import System.IO.Unsafe (unsafePerformIO)
 
 data CFEC
 data FECParams = FECParams
@@ -76,8 +72,6 @@ instance NFData FECParams where
 instance Show FECParams where
     show (FECParams _ k n) = "FEC (" ++ show k ++ ", " ++ show n ++ ")"
 
-foreign import ccall unsafe "fec_init"
-    _init :: IO ()
 foreign import ccall unsafe "fec_new"
     _new ::
         -- | k
@@ -122,23 +116,7 @@ isValidConfig k n
     | n > 255 = False
     | otherwise = True
 
-{- | The underlying library signaled that it has not been properly initialized
- yet.  Use @initialize@ to initialize it.
--}
-data Uninitialized = Uninitialized deriving (Ord, Eq, Show)
 
-instance Exception Uninitialized
-
--- A lock to ensure at most one thread attempts to initialize the underlying
--- library at a time.  Multiple initializations are harmless but concurrent
--- initializations are disallowed.
-_initializationLock :: Lock
-{-# NOINLINE _initializationLock #-}
-_initializationLock = unsafePerformIO newLock
-
--- | Initialize the library.  This must be done before other APIs can succeed.
-initialize :: IO ()
-initialize = withLock _initializationLock _init
 
 -- | Return a FEC with the given parameters.
 fec ::
@@ -146,22 +124,14 @@ fec ::
     Int ->
     -- | the total number blocks, must be < 256
     Int ->
-    FECParams
+    IO FECParams
 fec k n =
     if not (isValidConfig k n)
         then error $ "Invalid FEC parameters: " ++ show k ++ " " ++ show n
-        else
-            unsafePerformIO
-                ( do
-                    cfec' <- _new (fromIntegral k) (fromIntegral n)
-                    -- new will return null if the library hasn't been
-                    -- initialized.
-                    if cfec' == nullPtr
-                        then throwIO Uninitialized
-                        else do
-                            params <- newForeignPtr _free cfec'
-                            return $ FECParams params k n
-                )
+        else do
+          cfec' <- _new (fromIntegral k) (fromIntegral n)
+          params <- newForeignPtr _free cfec'
+          return $ FECParams params k n
 
 -- | Create a C array of unsigned from an input array
 uintCArray :: [Int] -> (Ptr CUInt -> IO a) -> IO a
@@ -222,29 +192,26 @@ encode ::
     -- | a list of @k@ input blocks
     [B.ByteString] ->
     -- | (n - k) output blocks
-    [B.ByteString]
+    IO [B.ByteString]
 encode (FECParams params k n) inblocks
     | length inblocks /= k = error "Wrong number of blocks to FEC encode"
     | not (allByteStringsSameLength inblocks) = error "Not all inputs to FEC encode are the same length"
-    | otherwise =
-        unsafePerformIO
-            ( do
-                let sz = B.length $ head inblocks
-                withForeignPtr
-                    params
-                    ( \cfec' -> do
-                        byteStringsToArray
-                            inblocks
-                            ( \src -> do
-                                createByteStringArray
-                                    (n - k)
-                                    sz
-                                    ( \fecs -> do
-                                        uintCArray
-                                            [k .. (n - 1)]
-                                            ( \block_nums -> do
-                                                _encode cfec' src fecs block_nums (fromIntegral (n - k)) $ fromIntegral sz
-                                            )
+    | otherwise = do
+        let sz = B.length $ head inblocks
+        withForeignPtr
+            params
+            ( \cfec' -> do
+                byteStringsToArray
+                    inblocks
+                    ( \src -> do
+                        createByteStringArray
+                            (n - k)
+                            sz
+                            ( \fecs -> do
+                                uintCArray
+                                    [k .. (n - 1)]
+                                    ( \block_nums -> do
+                                        _encode cfec' src fecs block_nums (fromIntegral (n - k)) $ fromIntegral sz
                                     )
                             )
                     )
@@ -276,40 +243,37 @@ decode ::
     -- | a list of @k@ blocks and their index
     [(Int, B.ByteString)] ->
     -- | a list the @k@ primary blocks
-    [B.ByteString]
+    IO [B.ByteString]
 decode (FECParams params k n) inblocks
     | length (nub $ map fst inblocks) /= length inblocks = error "Duplicate input blocks in FEC decode"
     | any ((\f -> f < 0 || f >= n) . fst) inblocks = error "Invalid block numbers in FEC decode"
     | length inblocks /= k = error "Wrong number of blocks to FEC decode"
     | not (allByteStringsSameLength $ map snd inblocks) = error "Not all inputs to FEC decode are same length"
-    | otherwise =
-        unsafePerformIO
-            ( do
-                let sz = B.length $ snd $ head inblocks
-                    inblocks' = reorderPrimaryBlocks k inblocks
-                    presentBlocks = map fst inblocks'
-                withForeignPtr
-                    params
-                    ( \cfec' -> do
-                        byteStringsToArray
-                            (map snd inblocks')
-                            ( \src -> do
-                                b <-
-                                    createByteStringArray
-                                        (n - k)
-                                        sz
-                                        ( \out -> do
-                                            uintCArray
-                                                presentBlocks
-                                                ( \block_nums -> do
-                                                    _decode cfec' src out block_nums $ fromIntegral sz
-                                                )
+    | otherwise = do
+        let sz = B.length $ snd $ head inblocks
+            inblocks' = reorderPrimaryBlocks k inblocks
+            presentBlocks = map fst inblocks'
+        withForeignPtr
+            params
+            ( \cfec' -> do
+                byteStringsToArray
+                    (map snd inblocks')
+                    ( \src -> do
+                        b <-
+                            createByteStringArray
+                                (n - k)
+                                sz
+                                ( \out -> do
+                                    uintCArray
+                                        presentBlocks
+                                        ( \block_nums -> do
+                                            _decode cfec' src out block_nums $ fromIntegral sz
                                         )
-                                let blocks = [0 .. (n - 1)] \\ presentBlocks
-                                    tagged = zip blocks b
-                                    allBlocks = sortTagged $ tagged ++ inblocks'
-                                return $ take k $ map snd allBlocks
-                            )
+                                )
+                        let blocks = [0 .. (n - 1)] \\ presentBlocks
+                            tagged = zip blocks b
+                            allBlocks = sortTagged $ tagged ++ inblocks'
+                        return $ take k $ map snd allBlocks
                     )
             )
 
@@ -367,22 +331,23 @@ enFEC ::
     -- | the data to divide
     B.ByteString ->
     -- | the resulting blocks
-    [B.ByteString]
-enFEC k n input = taggedPrimaryBlocks ++ taggedSecondaryBlocks
+    IO [B.ByteString]
+enFEC k n input = do
+  params <- fec k n
+  let remainder = B.length input `mod` k
+      paddingLength = if remainder >= 1 then k - remainder else k
+      paddingBytes = B.replicate (paddingLength - 1) 0 `B.append` B.singleton (fromIntegral paddingLength)
+      paddedInput = input `B.append` paddingBytes
+      blockSize = B.length paddedInput `div` k
+      primaryBlocks = divide blockSize paddedInput
+  secondaryBlocks <- encode params primaryBlocks
+  let taggedPrimaryBlocks = zipWith B.cons [0 ..] primaryBlocks
+      taggedSecondaryBlocks = zipWith B.cons [(fromIntegral k) ..] secondaryBlocks
+  pure $ taggedPrimaryBlocks ++ taggedSecondaryBlocks
   where
-    taggedPrimaryBlocks = zipWith B.cons [0 ..] primaryBlocks
-    taggedSecondaryBlocks = zipWith B.cons [(fromIntegral k) ..] secondaryBlocks
-    remainder = B.length input `mod` k
-    paddingLength = if remainder >= 1 then k - remainder else k
-    paddingBytes = B.replicate (paddingLength - 1) 0 `B.append` B.singleton (fromIntegral paddingLength)
     divide a bs
         | B.null bs = []
         | otherwise = B.take a bs : divide a (B.drop a bs)
-    input' = input `B.append` paddingBytes
-    blockSize = B.length input' `div` k
-    primaryBlocks = divide blockSize input'
-    secondaryBlocks = encode params primaryBlocks
-    params = fec k n
 
 -- | Reverses the operation of @enFEC@.
 deFEC ::
@@ -392,13 +357,12 @@ deFEC ::
     Int ->
     -- | a list of k, or more, blocks from @enFEC@
     [B.ByteString] ->
-    B.ByteString
-deFEC k n inputs
-    | length inputs < k = error "Too few inputs to deFEC"
-    | otherwise = B.take (B.length fecOutput - paddingLength) fecOutput
-  where
-    paddingLength = fromIntegral $ B.last fecOutput
-    inputs' = take k inputs
-    taggedInputs = map (\bs -> (fromIntegral $ B.head bs, B.tail bs)) inputs'
-    fecOutput = B.concat $ decode params taggedInputs
-    params = fec k n
+    IO B.ByteString
+deFEC k n inputs = if length inputs < k then error "Too few inputs to deFEC" else do
+  params <- fec k n
+  let kInputs = take k inputs
+  let taggedInputs = map (\bs -> (fromIntegral $ B.head bs, B.tail bs)) kInputs
+  fecOutput <- B.concat <$> decode params taggedInputs
+  let paddingLength = fromIntegral $ B.last fecOutput
+  pure $ B.take (B.length fecOutput - paddingLength) fecOutput 
+    
