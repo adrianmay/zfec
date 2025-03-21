@@ -41,7 +41,7 @@ library
   default-extensions: ForeignFunctionInterface
   hs-source-dirs:     haskell
   ghc-options:        -Wall
-  c-sources:          zfec/fec.c
+  c-sources:          zfec/fec.c 
   cc-options:         -std=c99
   include-dirs:       zfec
 
