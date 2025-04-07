@@ -46,7 +46,8 @@ library
   cc-options:         -std=c99
   include-dirs:       zfec
 
-executable benchmark-zfec
+benchmark benchmark-zfec
+  type:             exitcode-stdio-1.0
   main-is:          Main.hs
   ghc-options:      -threaded
   build-depends:
@@ -55,7 +56,6 @@ executable benchmark-zfec
     , criterion <1.7
     , fec
     , random <2
-
   hs-source-dirs:   benchmark-zfec
   default-language: Haskell2010
 
