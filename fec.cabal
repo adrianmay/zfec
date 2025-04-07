@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               fec
-version:            2.0.0
+version:            2.0.7
 license:            GPL-2.0-or-later
 license-file:       README.rst
 author:             Adam Langley <agl@imperialviolet.org>
@@ -26,6 +26,7 @@ extra-source-files:
   COPYING.GPL
   COPYING.TGPPL.rst
   zfec/fec.h
+  zfec/tables.h
 
 extra-doc-files:    ChangeLog.md
 
